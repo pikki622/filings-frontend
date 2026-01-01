@@ -1,39 +1,51 @@
 """FastAPI application entry point."""
 
+import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
 
 from backend.config import get_settings
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan handler for startup/shutdown events."""
     settings = get_settings()
-    print(f"Starting server on {settings.host}:{settings.port}")
-    print(f"Dropbox root: {settings.dropbox_root}")
+    logger.info(f"Starting server on {settings.host}:{settings.port}")
+    logger.info(f"Dropbox root: {settings.dropbox_root}")
 
     # Auto-load file tree cache on startup
     from backend.services.file_cache import get_file_cache
 
     cache = get_file_cache(settings.files_root)
     if cache.is_cached:
-        print("Loading file tree cache...")
+        logger.info("Loading file tree cache...")
         success = await cache.load_cache()
         if success:
             info = cache.get_cache_info()
-            print(f"Cache loaded: {info['metadata'].get('total_files', 0)} files, "
-                  f"{info['metadata'].get('total_folders', 0)} folders")
+            logger.info(
+                f"Cache loaded: {info['metadata'].get('total_files', 0)} files, "
+                f"{info['metadata'].get('total_folders', 0)} folders"
+            )
         else:
-            print("Failed to load cache")
+            logger.warning("Failed to load cache - running without cache")
     else:
-        print("No cache file found. Run POST /api/files/cache/build to create one.")
+        logger.info("No cache file found. Run POST /api/files/cache/build to create one.")
 
     yield
-    print("Shutting down server")
+    logger.info("Shutting down server")
 
 
 app = FastAPI(
@@ -43,6 +55,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# GZip compression for large responses (file trees can be several MB)
+app.add_middleware(GZipMiddleware, minimum_size=500)
+
 # CORS middleware for Vite dev server
 app.add_middleware(
     CORSMiddleware,
@@ -51,9 +66,32 @@ app.add_middleware(
         "http://127.0.0.1:5173",
     ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "Accept-Encoding"],
 )
+
+
+# Global exception handler
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Handle all unhandled exceptions with proper logging.
+
+    Note: HTTPException is re-raised to preserve FastAPI's default handling
+    of intentional error responses (404, 403, etc.).
+    """
+    # Don't intercept HTTPException - let FastAPI handle it with proper status codes
+    if isinstance(exc, HTTPException):
+        raise exc
+
+    logger.exception(f"Unhandled exception for {request.method} {request.url.path}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "code": "INTERNAL_ERROR",
+            "message": "An unexpected error occurred. Please try again.",
+        },
+    )
 
 
 @app.get("/health")
@@ -75,24 +113,37 @@ async def get_config() -> dict[str, str]:
 
 # WebSocket connection manager
 class ConnectionManager:
-    """Manage WebSocket connections."""
+    """Manage WebSocket connections with safe disconnect handling.
+
+    Uses a set for O(1) add/remove operations instead of list's O(N).
+    """
 
     def __init__(self) -> None:
-        self.active_connections: list[WebSocket] = []
+        self.active_connections: set[WebSocket] = set()
 
     async def connect(self, websocket: WebSocket) -> None:
         """Accept and track a new WebSocket connection."""
         await websocket.accept()
-        self.active_connections.append(websocket)
+        self.active_connections.add(websocket)
+        logger.debug(f"WebSocket connected. Total connections: {len(self.active_connections)}")
 
     def disconnect(self, websocket: WebSocket) -> None:
-        """Remove a WebSocket connection."""
-        self.active_connections.remove(websocket)
+        """Safely remove a WebSocket connection (O(1) with set.discard)."""
+        self.active_connections.discard(websocket)
+        logger.debug(f"WebSocket disconnected. Total connections: {len(self.active_connections)}")
 
     async def broadcast(self, message: dict) -> None:
-        """Broadcast message to all connected clients."""
+        """Broadcast message to all connected clients with failure handling."""
+        dead_connections: set[WebSocket] = set()
         for connection in self.active_connections:
-            await connection.send_json(message)
+            try:
+                await connection.send_json(message)
+            except Exception as e:
+                logger.warning(f"Failed to send to WebSocket: {e}")
+                dead_connections.add(connection)
+
+        # Clean up dead connections in O(1) per connection
+        self.active_connections -= dead_connections
 
 
 manager = ConnectionManager()
