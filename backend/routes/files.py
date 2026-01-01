@@ -38,6 +38,14 @@ async def get_file_tree(
         list[str] | None,
         Query(description="Source directories to include"),
     ] = None,
+    form_types: Annotated[
+        list[str] | None,
+        Query(description="SEC form types to filter by (10-K, 8-K, etc.)"),
+    ] = None,
+    event_types: Annotated[
+        list[str] | None,
+        Query(description="Transcript event types to filter by"),
+    ] = None,
     file_types: Annotated[
         list[str] | None,
         Query(description="File extensions to include (pdf, md, htm, txt, json)"),
@@ -66,6 +74,8 @@ async def get_file_tree(
 
     Args:
         sources: Source directories (Filings, Transcripts, Research, Presentations)
+        form_types: SEC form types to filter by (only applies to Filings)
+        event_types: Transcript event types to filter by (only applies to Transcripts)
         file_types: File extensions to include
         tickers: Ticker symbols to filter by
         search: Filename search query (case-insensitive)
@@ -78,6 +88,8 @@ async def get_file_tree(
     try:
         return await scanner.scan(
             sources=sources,
+            form_types=form_types,
+            event_types=event_types,
             file_types=file_types,
             tickers=tickers,
             search=search,
@@ -340,33 +352,41 @@ async def get_available_options(
         Dictionary with available tickers, form types, event types, date range, and years
     """
     try:
-        # Get available tickers
-        available_tickers = await scanner.get_available_tickers()
+        # Get tickers filtered by source and form type
+        # This provides cross-filtering: selecting a form type limits available tickers
+        available_tickers = await scanner.get_filtered_tickers(
+            sources=sources,
+            form_types=form_types,
+        )
 
-        # Get available form types
-        available_form_types = await scanner.get_available_form_types()
+        # Get form types (only relevant when Filings is selected)
+        if not sources or "Filings" in sources:
+            available_form_types = await scanner.get_available_form_types()
+        else:
+            available_form_types = []
 
-        # Get available event types (if we have transcript data)
-        available_event_types = [
-            "Earnings",
-            "Conference",
-            "SalesRelease",
-            "MergerAcquisition",
-            "ShareholderMeeting",
-            "Guidance",
-            "InvestorDay",
-            "ProductEvent",
-            "BI",
-            "ModelingCall",
-            "Partnership",
-        ]
+        # Get available event types (only relevant when Transcripts is selected)
+        if not sources or "Transcripts" in sources:
+            available_event_types = [
+                "Earnings",
+                "Conference",
+                "SalesRelease",
+                "MergerAcquisition",
+                "ShareholderMeeting",
+                "Guidance",
+                "InvestorDay",
+                "ProductEvent",
+                "BI",
+                "ModelingCall",
+                "Partnership",
+            ]
+        else:
+            available_event_types = []
 
         # Generate available years
         current_year = datetime.now().year
         years = list(range(2000, current_year + 1))
 
-        # For a full implementation, you would filter these based on the current
-        # selections to enable true cross-filtering. For now, return all options.
         return {
             "tickers": available_tickers,
             "formTypes": available_form_types,

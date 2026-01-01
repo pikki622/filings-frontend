@@ -85,15 +85,16 @@ export function FileFilters() {
       // Don't allow deselecting all sources
       if (filters.sources.length > 1) {
         const newSources = filters.sources.filter((s) => s !== source);
-        setFilters({ sources: newSources });
-        // Clear form/event types if the corresponding source is deselected
-        if (source === 'Filings') {
-          setFilters({ sources: newSources, formTypes: [] });
-        } else if (source === 'Transcripts') {
-          setFilters({ sources: newSources, eventTypes: [] });
-        }
+        // Single atomic update to avoid race conditions
+        // Clear form/event types when their corresponding source is deselected
+        setFilters({
+          sources: newSources,
+          formTypes: source === 'Filings' ? [] : filters.formTypes,
+          eventTypes: source === 'Transcripts' ? [] : filters.eventTypes,
+        });
       }
     } else {
+      // Adding a source - keep existing type filters
       setFilters({ sources: [...filters.sources, source] });
     }
   };

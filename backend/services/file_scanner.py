@@ -24,6 +24,8 @@ class ScanFilters:
     """Filters to apply during file scanning."""
 
     sources: list[str] = field(default_factory=list)
+    form_types: list[str] = field(default_factory=list)  # SEC form types (10-K, 8-K, etc.)
+    event_types: list[str] = field(default_factory=list)  # Transcript event types
     file_types: list[str] = field(default_factory=list)
     tickers: list[str] = field(default_factory=list)
     search: str = ""
@@ -177,6 +179,28 @@ class FileScanner:
                         entry_path = Path(entry.path)
 
                         if entry.is_dir(follow_symlinks=False):
+                            # Check form type filter for Filings structure
+                            # Only apply at depth 1 (form type level within Filings)
+                            if filters.form_types and "Filings" in dir_path.parts:
+                                form_type = self._extract_form_type_from_path(entry_path)
+                                if form_type and form_type not in filters.form_types:
+                                    continue
+
+                            # Check event type filter for Transcripts structure
+                            if filters.event_types and "Transcripts" in dir_path.parts:
+                                # Event types are folder names under Transcripts/pdf/TICKER/
+                                # or under Transcripts/md/
+                                event_type = entry.name
+                                # Only filter at appropriate level
+                                if event_type in [
+                                    "Earnings", "Conference", "SalesRelease",
+                                    "MergerAcquisition", "ShareholderMeeting", "Guidance",
+                                    "InvestorDay", "ProductEvent", "BI", "ModelingCall",
+                                    "Partnership"
+                                ]:
+                                    if event_type not in filters.event_types:
+                                        continue
+
                             # Check ticker filter for Filings structure
                             if filters.tickers:
                                 ticker = self._extract_ticker_from_path(entry_path)
@@ -253,6 +277,8 @@ class FileScanner:
     async def scan(
         self,
         sources: list[str] | None = None,
+        form_types: list[str] | None = None,
+        event_types: list[str] | None = None,
         file_types: list[str] | None = None,
         tickers: list[str] | None = None,
         search: str = "",
@@ -263,6 +289,8 @@ class FileScanner:
 
         Args:
             sources: Source directories to include (Filings, Transcripts, etc.)
+            form_types: SEC form types to filter by (10-K, 8-K, etc.)
+            event_types: Transcript event types to filter by
             file_types: File extensions to include (pdf, md, htm, etc.)
             tickers: Ticker symbols to filter by
             search: Filename search query
@@ -270,10 +298,12 @@ class FileScanner:
             max_depth: Maximum directory depth to scan
 
         Returns:
-            List of FileNode trees, one per source directory
+            List of FileNode trees representing the filtered directory structure
         """
         filters = ScanFilters(
             sources=sources or list(self.SOURCE_DIRS.keys()),
+            form_types=form_types or [],
+            event_types=event_types or [],
             file_types=file_types or [],
             tickers=[t.upper() for t in (tickers or [])],
             search=search,
@@ -312,6 +342,14 @@ class FileScanner:
             except Exception as e:
                 # Log error but continue with other sources
                 print(f"Error scanning {source_name}: {e}")
+
+        # If exactly one source is selected, return its children directly
+        # This prevents showing "Filings" or "Transcripts" as top-level folder
+        if len(results) == 1 and len(filters.sources) == 1:
+            source_node = results[0]
+            if source_node.children:
+                return source_node.children
+            return []
 
         return results
 
@@ -454,6 +492,85 @@ class FileScanner:
             )
 
         return sorted(self._form_type_cache)
+
+    def _collect_filtered_tickers_sync(
+        self,
+        sources: list[str] | None,
+        form_types: list[str] | None,
+    ) -> set[str]:
+        """Collect tickers filtered by source and form type (sync)."""
+        tickers: set[str] = set()
+
+        include_filings = not sources or "Filings" in sources
+        include_transcripts = not sources or "Transcripts" in sources
+
+        # Collect from Filings
+        if include_filings:
+            filings_path = self.root_path / "Filings"
+            if filings_path.exists():
+                try:
+                    with os.scandir(filings_path) as form_dirs:
+                        for form_dir in form_dirs:
+                            if not form_dir.is_dir() or form_dir.name.startswith("."):
+                                continue
+                            # If form_types filter is set, only include matching forms
+                            if form_types and form_dir.name not in form_types:
+                                continue
+                            # Scan tickers within this form type
+                            try:
+                                with os.scandir(form_dir.path) as ticker_dirs:
+                                    for ticker_dir in ticker_dirs:
+                                        if (
+                                            ticker_dir.is_dir()
+                                            and not ticker_dir.name.startswith(".")
+                                            and re.match(r"^[A-Z]{1,5}$", ticker_dir.name)
+                                        ):
+                                            tickers.add(ticker_dir.name)
+                            except (PermissionError, OSError):
+                                continue
+                except (PermissionError, OSError):
+                    pass
+
+        # Collect from Transcripts
+        if include_transcripts:
+            transcripts_pdf = self.root_path / "Transcripts" / "pdf"
+            if transcripts_pdf.exists():
+                try:
+                    with os.scandir(transcripts_pdf) as ticker_dirs:
+                        for ticker_dir in ticker_dirs:
+                            if (
+                                ticker_dir.is_dir()
+                                and not ticker_dir.name.startswith(".")
+                                and re.match(r"^[A-Z]{1,5}$", ticker_dir.name)
+                            ):
+                                tickers.add(ticker_dir.name)
+                except (PermissionError, OSError):
+                    pass
+
+        return tickers
+
+    async def get_filtered_tickers(
+        self,
+        sources: list[str] | None = None,
+        form_types: list[str] | None = None,
+    ) -> list[str]:
+        """Get tickers filtered by source and form type.
+
+        Args:
+            sources: Source directories to include (Filings, Transcripts)
+            form_types: Form types to filter by (only applies to Filings)
+
+        Returns:
+            Sorted list of ticker symbols available with the given filters
+        """
+        loop = asyncio.get_event_loop()
+        tickers = await loop.run_in_executor(
+            self.executor,
+            self._collect_filtered_tickers_sync,
+            sources,
+            form_types,
+        )
+        return sorted(tickers)
 
     async def get_file_content(self, path: str) -> tuple[str | None, str]:
         """Get file content for text files or URL for binary files.

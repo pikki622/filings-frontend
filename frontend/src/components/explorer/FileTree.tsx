@@ -1,7 +1,7 @@
 import { Tree, NodeRendererProps } from 'react-arborist';
 import { useFileStore } from '../../store/fileStore';
 import type { FileNode } from '../../types/file';
-import { useCallback } from 'react';
+import { useCallback, useRef, useState, useEffect } from 'react';
 
 // Map file extensions to colors
 const FILE_TYPE_COLORS: Record<string, string> = {
@@ -25,6 +25,27 @@ const SOURCE_COLORS: Record<string, string> = {
 
 export function FileTree() {
   const { tree, selectFile, selectedFile, loadChildren } = useFileStore();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dimensions, setDimensions] = useState({ width: 320, height: 400 });
+
+  // Track container size with ResizeObserver
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        setDimensions({
+          width: entry.contentRect.width,
+          height: entry.contentRect.height,
+        });
+      }
+    });
+
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   // Handle node toggle with lazy loading
   const handleToggle = useCallback(
@@ -61,26 +82,28 @@ export function FileTree() {
   }
 
   return (
-    <Tree<FileNode>
-      data={tree}
-      openByDefault={false}
-      width="100%"
-      height={600}
-      indent={16}
-      rowHeight={28}
-      overscanCount={10}
-      paddingTop={8}
-      paddingBottom={8}
-      selection={selectedFile?.id}
-      onSelect={(nodes) => {
-        if (nodes.length > 0) {
-          selectFile(nodes[0].data);
-        }
-      }}
-      onToggle={(nodeId) => handleToggle(nodeId)}
-    >
-      {Node}
-    </Tree>
+    <div ref={containerRef} className="h-full w-full">
+      <Tree<FileNode>
+        data={tree}
+        openByDefault={false}
+        width={dimensions.width}
+        height={dimensions.height}
+        indent={16}
+        rowHeight={28}
+        overscanCount={10}
+        paddingTop={8}
+        paddingBottom={8}
+        selection={selectedFile?.id}
+        onSelect={(nodes) => {
+          if (nodes.length > 0) {
+            selectFile(nodes[0].data);
+          }
+        }}
+        onToggle={(nodeId) => handleToggle(nodeId)}
+      >
+        {Node}
+      </Tree>
+    </div>
   );
 }
 
