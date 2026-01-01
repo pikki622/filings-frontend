@@ -58,10 +58,13 @@ cd frontend && npm install && cd ..
 ### Development
 
 ```bash
-# Option 1: Run both servers with script
+# Recommended: Use CLI command
+uv run filingsfrontend launch
+
+# Alternative: Run with script
 ./scripts/dev.sh
 
-# Option 2: Run separately
+# Or run separately in two terminals:
 # Terminal 1 - Backend
 uv run uvicorn backend.main:app --reload --port 8000
 
