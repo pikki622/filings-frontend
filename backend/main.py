@@ -4,7 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
@@ -74,7 +74,15 @@ app.add_middleware(
 # Global exception handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Handle all unhandled exceptions with proper logging."""
+    """Handle all unhandled exceptions with proper logging.
+
+    Note: HTTPException is re-raised to preserve FastAPI's default handling
+    of intentional error responses (404, 403, etc.).
+    """
+    # Don't intercept HTTPException - let FastAPI handle it with proper status codes
+    if isinstance(exc, HTTPException):
+        raise exc
+
     logger.exception(f"Unhandled exception for {request.method} {request.url.path}")
     return JSONResponse(
         status_code=500,
@@ -105,39 +113,37 @@ async def get_config() -> dict[str, str]:
 
 # WebSocket connection manager
 class ConnectionManager:
-    """Manage WebSocket connections with safe disconnect handling."""
+    """Manage WebSocket connections with safe disconnect handling.
+
+    Uses a set for O(1) add/remove operations instead of list's O(N).
+    """
 
     def __init__(self) -> None:
-        self.active_connections: list[WebSocket] = []
+        self.active_connections: set[WebSocket] = set()
 
     async def connect(self, websocket: WebSocket) -> None:
         """Accept and track a new WebSocket connection."""
         await websocket.accept()
-        self.active_connections.append(websocket)
+        self.active_connections.add(websocket)
         logger.debug(f"WebSocket connected. Total connections: {len(self.active_connections)}")
 
     def disconnect(self, websocket: WebSocket) -> None:
-        """Safely remove a WebSocket connection."""
-        try:
-            self.active_connections.remove(websocket)
-            logger.debug(f"WebSocket disconnected. Total connections: {len(self.active_connections)}")
-        except ValueError:
-            # Already disconnected - this is fine
-            pass
+        """Safely remove a WebSocket connection (O(1) with set.discard)."""
+        self.active_connections.discard(websocket)
+        logger.debug(f"WebSocket disconnected. Total connections: {len(self.active_connections)}")
 
     async def broadcast(self, message: dict) -> None:
         """Broadcast message to all connected clients with failure handling."""
-        dead_connections: list[WebSocket] = []
+        dead_connections: set[WebSocket] = set()
         for connection in self.active_connections:
             try:
                 await connection.send_json(message)
             except Exception as e:
                 logger.warning(f"Failed to send to WebSocket: {e}")
-                dead_connections.append(connection)
+                dead_connections.add(connection)
 
-        # Clean up dead connections
-        for conn in dead_connections:
-            self.disconnect(conn)
+        # Clean up dead connections in O(1) per connection
+        self.active_connections -= dead_connections
 
 
 manager = ConnectionManager()
