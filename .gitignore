@@ -1,0 +1,73 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+.eggs/
+*.egg-info/
+dist/
+build/
+
+# Node/Frontend
+node_modules/
+.next/
+out/
+.nuxt/
+dist/
+*.local
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Logs
+*.log
+logs/
+
+# Build artifacts
+*.so
+*.dylib
+
+# Cache
+.ruff_cache/
+.mypy_cache/
+.cache/
+
+# Firebase
+firebase-debug.log
+.firebase/
+
+# Playwright
+.playwright-mcp/
+
+# Claude
+.claude/
+
+# Lock files (keep uv.lock but ignore others if needed)
+package-lock.json
+yarn.lock
+
+# Backend cache
+backend/.file_cache/
