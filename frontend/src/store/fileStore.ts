@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
-import type { FileNode, FileFilters, Hierarchy } from '../types/file';
-import { DEFAULT_FILTERS } from '../types/file';
-import { fetchFileTree, fetchFileMetadata, fetchFolderChildren, type FileMetadata } from '../api/files';
+import type { FileNode, FileFilters, SortState, AvailableFilterOptions } from '../types/file';
+import { DEFAULT_FILTERS, DEFAULT_SORT } from '../types/file';
+import { fetchFileTree, fetchFileMetadata, fetchFolderChildren, fetchAvailableOptions, type FileMetadata } from '../api/files';
 
 interface FileState {
   // Tree state
@@ -14,25 +14,29 @@ interface FileState {
   selectedFile: FileNode | null;
   selectedFileMetadata: FileMetadata | null;
 
-  // Filters and hierarchy
+  // Filters and sorting
   filters: FileFilters;
-  hierarchy: Hierarchy;
+  sort: SortState;
+  availableOptions: AvailableFilterOptions | null;
 
   // Loading states
   loading: boolean;
   metadataLoading: boolean;
   loadingNodes: Set<string>; // Track nodes that are loading children
+  optionsLoading: boolean;
   error: string | null;
 
   // Actions
   setFilters: (filters: Partial<FileFilters>) => void;
   resetFilters: () => void;
-  setHierarchy: (hierarchy: Hierarchy) => void;
+  setSort: (sort: Partial<SortState>) => void;
+  toggleSort: (column: SortState['column']) => void;
   selectFile: (file: FileNode | null) => void;
   fetchTree: () => Promise<void>;
   fetchMetadata: (path: string) => Promise<void>;
   loadChildren: (node: FileNode) => Promise<boolean>; // Returns true if children were loaded
   isNodeLoading: (nodeId: string) => boolean;
+  refreshAvailableOptions: () => Promise<void>;
 }
 
 // Debounce helper
@@ -71,6 +75,11 @@ export const useFileStore = create<FileState>()(
       get().fetchTree();
     }, 300);
 
+    // Debounced options refresh
+    const debouncedOptionsRefresh = debounce(() => {
+      get().refreshAvailableOptions();
+    }, 500);
+
     return {
       // Initial state
       tree: [],
@@ -79,10 +88,12 @@ export const useFileStore = create<FileState>()(
       selectedFile: null,
       selectedFileMetadata: null,
       filters: DEFAULT_FILTERS,
-      hierarchy: 'source_form_ticker_date',
+      sort: DEFAULT_SORT,
+      availableOptions: null,
       loading: false,
       metadataLoading: false,
       loadingNodes: new Set<string>(),
+      optionsLoading: false,
       error: null,
 
       // Actions
@@ -91,16 +102,45 @@ export const useFileStore = create<FileState>()(
           filters: { ...state.filters, ...newFilters },
         }));
         debouncedFetch();
+        debouncedOptionsRefresh();
       },
 
       resetFilters: () => {
-        set({ filters: DEFAULT_FILTERS });
+        set({ filters: DEFAULT_FILTERS, sort: DEFAULT_SORT });
         debouncedFetch();
+        debouncedOptionsRefresh();
       },
 
-      setHierarchy: (hierarchy) => {
-        set({ hierarchy });
-        get().fetchTree();
+      setSort: (newSort) => {
+        set((state) => ({
+          sort: { ...state.sort, ...newSort },
+        }));
+      },
+
+      toggleSort: (column) => {
+        const { sort } = get();
+        let newDirection: SortState['direction'];
+
+        if (sort.column !== column) {
+          // New column, start with ascending
+          newDirection = 'asc';
+        } else if (sort.direction === 'asc') {
+          // Currently ascending, switch to descending
+          newDirection = 'desc';
+        } else if (sort.direction === 'desc') {
+          // Currently descending, remove sort
+          newDirection = null;
+        } else {
+          // No sort, start with ascending
+          newDirection = 'asc';
+        }
+
+        set({
+          sort: {
+            column: newDirection ? column : null,
+            direction: newDirection,
+          },
+        });
       },
 
       selectFile: async (file) => {
@@ -111,11 +151,11 @@ export const useFileStore = create<FileState>()(
       },
 
       fetchTree: async () => {
-        const { filters, hierarchy } = get();
+        const { filters } = get();
         set({ loading: true, error: null });
 
         try {
-          const response = await fetchFileTree(filters, hierarchy);
+          const response = await fetchFileTree(filters);
           set({
             tree: response.tree,
             totalFiles: response.totalFiles,
@@ -195,6 +235,19 @@ export const useFileStore = create<FileState>()(
 
       isNodeLoading: (nodeId: string) => {
         return get().loadingNodes.has(nodeId);
+      },
+
+      refreshAvailableOptions: async () => {
+        const { filters } = get();
+        set({ optionsLoading: true });
+
+        try {
+          const options = await fetchAvailableOptions(filters);
+          set({ availableOptions: options, optionsLoading: false });
+        } catch (error) {
+          console.error('Failed to fetch available options:', error);
+          set({ optionsLoading: false });
+        }
       },
     };
   })

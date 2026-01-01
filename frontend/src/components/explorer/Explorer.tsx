@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
 import { useFileStore } from '../../store/fileStore';
-import { HierarchySelector } from './HierarchySelector';
 import { FileFilters } from './FileFilters';
 import { FileTree } from './FileTree';
 import { FileDetails } from './FileDetails';
@@ -15,12 +14,9 @@ export function Explorer() {
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
-      {/* Header with hierarchy selector and stats */}
+      {/* Header with stats */}
       <div className="flex items-center justify-between border-b border-border bg-surface px-4 py-3">
-        <div className="flex items-center gap-4">
-          <h2 className="text-sm font-medium text-text-primary">File Explorer</h2>
-          <HierarchySelector />
-        </div>
+        <h2 className="text-sm font-medium text-text-primary">File Explorer</h2>
         <div className="flex items-center gap-4 text-xs text-text-secondary">
           <span>{totalFolders.toLocaleString()} folders</span>
           <span>{totalFiles.toLocaleString()} files</span>

@@ -1,5 +1,6 @@
 """File API routes for file tree browsing and content retrieval."""
 
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -296,6 +297,90 @@ async def get_available_sources(
             }
         )
     return sources
+
+
+@router.get("/available-options")
+async def get_available_options(
+    scanner: Annotated[FileScanner, Depends(get_scanner)],
+    sources: Annotated[
+        list[str] | None,
+        Query(description="Source directories currently selected"),
+    ] = None,
+    file_types: Annotated[
+        list[str] | None,
+        Query(description="File types currently selected"),
+    ] = None,
+    form_types: Annotated[
+        list[str] | None,
+        Query(description="Form types currently selected"),
+    ] = None,
+    event_types: Annotated[
+        list[str] | None,
+        Query(description="Event types currently selected"),
+    ] = None,
+    tickers: Annotated[
+        list[str] | None,
+        Query(description="Tickers currently selected"),
+    ] = None,
+    date_start: Annotated[
+        str | None,
+        Query(description="Start date filter"),
+    ] = None,
+    date_end: Annotated[
+        str | None,
+        Query(description="End date filter"),
+    ] = None,
+) -> dict:
+    """Get available filter options based on current filter selections.
+
+    This enables cross-filter dynamics where selecting one filter
+    limits the available options in other filters.
+
+    Returns:
+        Dictionary with available tickers, form types, event types, date range, and years
+    """
+    try:
+        # Get available tickers
+        available_tickers = await scanner.get_available_tickers()
+
+        # Get available form types
+        available_form_types = await scanner.get_available_form_types()
+
+        # Get available event types (if we have transcript data)
+        available_event_types = [
+            "Earnings",
+            "Conference",
+            "SalesRelease",
+            "MergerAcquisition",
+            "ShareholderMeeting",
+            "Guidance",
+            "InvestorDay",
+            "ProductEvent",
+            "BI",
+            "ModelingCall",
+            "Partnership",
+        ]
+
+        # Generate available years
+        current_year = datetime.now().year
+        years = list(range(2000, current_year + 1))
+
+        # For a full implementation, you would filter these based on the current
+        # selections to enable true cross-filtering. For now, return all options.
+        return {
+            "tickers": available_tickers,
+            "formTypes": available_form_types,
+            "eventTypes": available_event_types,
+            "dateRange": {
+                "min": "2000-01-01",
+                "max": f"{current_year}-12-31",
+            },
+            "years": years,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get available options: {str(e)}"
+        )
 
 
 @router.get("/children/{path:path}", response_model=list[FileNode])

@@ -1,5 +1,9 @@
 export { Explorer } from './Explorer';
-export { HierarchySelector } from './HierarchySelector';
 export { FileFilters } from './FileFilters';
 export { FileTree } from './FileTree';
 export { FileDetails } from './FileDetails';
+export { FilterSection } from './FilterSection';
+export { TypeFilterGrid } from './TypeFilterGrid';
+export { TickerFilterGrid } from './TickerFilterGrid';
+export { DateRangeSlider } from './DateRangeSlider';
+export { SortableHeader } from './SortableHeader';
