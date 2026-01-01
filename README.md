@@ -5,10 +5,19 @@ A modern web interface for managing SEC filings and earnings transcripts. Featur
 ## Features
 
 - **File Explorer**: Browse 787K+ files across Filings, Transcripts, Research, and Presentations
-  - Multiple hierarchy views (by source, ticker, form type, date)
-  - Filters by source, file type, ticker, date range
+  - **Advanced Filtering System**:
+    - Source filters (Filings, Transcripts) with cross-filter dynamics
+    - Form type filter (10-K, 8-K, 20-F, etc.) for SEC filings
+    - Event type filter (Earnings, Conference, etc.) for transcripts
+    - File type filter (PDF, MD, HTM, TXT, JSON) with "All" toggle
+    - Ticker filter with 3-column scrollable grid and search
+    - Date range filter with year/month quick-select buttons
+  - **Cross-filter dynamics**: Filters impact each other (e.g., selecting a form type limits available tickers)
+  - Collapsible filter sections to save screen space
+  - Sortable file list columns (name, date, size)
   - Text search across filenames
-  - Virtualized tree for smooth performance
+  - Virtualized tree for smooth performance (handles 100k+ nodes)
+  - Responsive layout that fills available window height
   - Preview for PDF, Markdown, HTML, and text files
 
 - **CLI Commands**: Run filings and transcripts CLI commands with a visual interface
@@ -71,11 +80,19 @@ Open http://localhost:5173 in your browser.
 ## API Endpoints
 
 ### Files API
-- `GET /api/files/tree` - Get filtered file tree
+- `GET /api/files/tree` - Get filtered file tree (supports sources, form_types, event_types, file_types, tickers, search, max_depth)
 - `GET /api/files/metadata/{path}` - Get file metadata
 - `GET /api/files/content/{path}` - Get file content/URL
+- `GET /api/files/download` - Download file directly
+- `GET /api/files/children/{path}` - Lazy load folder children
 - `GET /api/files/tickers` - List available tickers
 - `GET /api/files/form-types` - List available form types
+- `GET /api/files/sources` - List available source directories
+- `GET /api/files/available-options` - Get cross-filtered options (tickers, form types, event types, years)
+- `GET /api/files/cache/info` - Get cache status
+- `POST /api/files/cache/build` - Build file tree cache
+- `POST /api/files/cache/load` - Load cache from disk
+- `DELETE /api/files/cache` - Clear cache
 
 ### Commands API
 - `GET /api/commands/schemas/{cli}` - Get command schemas
