@@ -7,18 +7,46 @@ import sys
 import signal
 from pathlib import Path
 
+# Default project location
+DEFAULT_PROJECT_PATH = Path("/Users/npw/PL3 Dropbox/Code/filings_frontend")
+
 
 def get_project_root() -> Path:
     """Get the project root directory."""
-    return Path(__file__).parent.parent
+    # Check environment variable first
+    env_path = os.environ.get("FILINGS_FRONTEND_PATH")
+    if env_path:
+        return Path(env_path)
+
+    # Check if current directory is the project
+    cwd = Path.cwd()
+    if (cwd / "pyproject.toml").exists() and (cwd / "frontend").exists():
+        return cwd
+
+    # Fall back to default path
+    if DEFAULT_PROJECT_PATH.exists():
+        return DEFAULT_PROJECT_PATH
+
+    raise FileNotFoundError(
+        "Cannot find filings-frontend project. Either:\n"
+        "  1. Run from the project directory\n"
+        "  2. Set FILINGS_FRONTEND_PATH environment variable\n"
+        f"  3. Ensure project exists at {DEFAULT_PROJECT_PATH}"
+    )
 
 
 def launch():
     """Launch both backend and frontend servers."""
-    project_root = get_project_root()
+    try:
+        project_root = get_project_root()
+    except FileNotFoundError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+
     frontend_dir = project_root / "frontend"
 
     print("Starting Filings Frontend...")
+    print(f"Project: {project_root}")
     print("=" * 40)
 
     processes = []
