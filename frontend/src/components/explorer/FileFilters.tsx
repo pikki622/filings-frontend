@@ -1,19 +1,117 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useFileStore } from '../../store/fileStore';
-import { SOURCES, FILE_TYPES } from '../../types/file';
+import { SOURCES, FILE_TYPES, ALL_SEC_FORM_TYPES, TRANSCRIPT_EVENT_TYPES } from '../../types/file';
 import { fetchTickers } from '../../api/files';
+import { FilterSection } from './FilterSection';
+import { TypeFilterGrid } from './TypeFilterGrid';
+import { TickerFilterGrid } from './TickerFilterGrid';
+import { DateRangeSlider } from './DateRangeSlider';
 
 export function FileFilters() {
-  const { filters, setFilters, resetFilters } = useFileStore();
+  const { filters, setFilters, resetFilters, availableOptions, refreshAvailableOptions } = useFileStore();
   const [isExpanded, setIsExpanded] = useState(true);
+  const [allTickers, setAllTickers] = useState<string[]>([]);
 
+  // Fetch available tickers on mount
+  useEffect(() => {
+    fetchTickers().then(setAllTickers).catch(console.error);
+  }, []);
+
+  // Refresh available options on mount
+  useEffect(() => {
+    refreshAvailableOptions();
+  }, [refreshAvailableOptions]);
+
+  // Determine if we're filtering Filings, Transcripts, or both
+  const showFilingsFilters = filters.sources.includes('Filings');
+  const showTranscriptsFilters = filters.sources.includes('Transcripts');
+
+  // Check if any non-default filters are active
   const hasActiveFilters =
-    filters.sources.length > 0 ||
+    filters.sources.length !== 1 ||
+    filters.sources[0] !== 'Filings' ||
     filters.fileTypes.length > 0 ||
+    filters.formTypes.length > 0 ||
+    filters.eventTypes.length > 0 ||
     filters.tickers.length > 0 ||
     filters.search !== '' ||
     filters.dateRange.start !== null ||
     filters.dateRange.end !== null;
+
+  // Toggle file type selection
+  const toggleFileType = (fileType: string) => {
+    if (filters.fileTypes.includes(fileType)) {
+      setFilters({ fileTypes: filters.fileTypes.filter((t) => t !== fileType) });
+    } else {
+      setFilters({ fileTypes: [...filters.fileTypes, fileType] });
+    }
+  };
+
+  // Set all file types (clear selection = show all)
+  const setAllFileTypes = () => {
+    setFilters({ fileTypes: [] });
+  };
+
+  // Toggle form type selection
+  const toggleFormType = (formType: string) => {
+    if (filters.formTypes.includes(formType)) {
+      setFilters({ formTypes: filters.formTypes.filter((t) => t !== formType) });
+    } else {
+      setFilters({ formTypes: [...filters.formTypes, formType] });
+    }
+  };
+
+  // Toggle event type selection
+  const toggleEventType = (eventType: string) => {
+    if (filters.eventTypes.includes(eventType)) {
+      setFilters({ eventTypes: filters.eventTypes.filter((t) => t !== eventType) });
+    } else {
+      setFilters({ eventTypes: [...filters.eventTypes, eventType] });
+    }
+  };
+
+  // Toggle ticker selection
+  const toggleTicker = (ticker: string) => {
+    if (filters.tickers.includes(ticker)) {
+      setFilters({ tickers: filters.tickers.filter((t) => t !== ticker) });
+    } else {
+      setFilters({ tickers: [...filters.tickers, ticker] });
+    }
+  };
+
+  // Toggle source selection
+  const toggleSource = (source: string) => {
+    if (filters.sources.includes(source)) {
+      // Don't allow deselecting all sources
+      if (filters.sources.length > 1) {
+        const newSources = filters.sources.filter((s) => s !== source);
+        // Single atomic update to avoid race conditions
+        // Clear form/event types when their corresponding source is deselected
+        setFilters({
+          sources: newSources,
+          formTypes: source === 'Filings' ? [] : filters.formTypes,
+          eventTypes: source === 'Transcripts' ? [] : filters.eventTypes,
+        });
+      }
+    } else {
+      // Adding a source - keep existing type filters
+      setFilters({ sources: [...filters.sources, source] });
+    }
+  };
+
+  // Available years from options or generate defaults
+  const availableYears = useMemo(() => {
+    if (availableOptions?.years && availableOptions.years.length > 0) {
+      return availableOptions.years;
+    }
+    // Generate default years from 2000 to current year
+    const currentYear = new Date().getFullYear();
+    const years = [];
+    for (let year = 2000; year <= currentYear; year++) {
+      years.push(year);
+    }
+    return years;
+  }, [availableOptions?.years]);
 
   return (
     <div className="border-b border-border bg-surface">
@@ -43,79 +141,136 @@ export function FileFilters() {
 
       {/* Filter content */}
       {isExpanded && (
-        <div className="space-y-3 px-4 pb-3">
+        <div className="pb-2">
           {/* Search input */}
-          <SearchInput
-            value={filters.search}
-            onChange={(search) => setFilters({ search })}
-          />
+          <div className="px-4 pb-3">
+            <SearchInput
+              value={filters.search}
+              onChange={(search) => setFilters({ search })}
+            />
+          </div>
 
           {/* Source toggle buttons */}
-          <FilterSection label="Sources">
-            <ToggleButtonGroup
-              options={SOURCES}
-              selected={filters.sources}
-              onChange={(sources) => setFilters({ sources })}
-              colorMap={{
-                Filings: 'bg-accent',
-                Transcripts: 'bg-success',
-                Research: 'bg-warning',
-                Presentations: 'bg-purple-500',
-              }}
+          <FilterSection title="Sources" defaultExpanded={true}>
+            <div className="flex gap-2">
+              {SOURCES.map((source) => {
+                const isSelected = filters.sources.includes(source);
+                const colorClass = source === 'Filings' ? 'bg-accent' : 'bg-success';
+
+                return (
+                  <button
+                    key={source}
+                    onClick={() => toggleSource(source)}
+                    className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                      isSelected
+                        ? `${colorClass} text-white`
+                        : 'border border-border bg-background text-text-secondary hover:border-text-secondary'
+                    }`}
+                  >
+                    {source}
+                  </button>
+                );
+              })}
+            </div>
+          </FilterSection>
+
+          {/* File type toggle buttons with "All" option */}
+          <FilterSection title="File Types" defaultExpanded={true}>
+            <div className="flex flex-wrap gap-1.5">
+              {/* All button */}
+              <button
+                onClick={setAllFileTypes}
+                className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                  filters.fileTypes.length === 0
+                    ? 'bg-accent text-white'
+                    : 'border border-border bg-background text-text-secondary hover:border-text-secondary'
+                }`}
+              >
+                All
+              </button>
+              {/* Individual file type buttons */}
+              {FILE_TYPES.map((fileType) => {
+                const isSelected = filters.fileTypes.includes(fileType);
+                const colorMap: Record<string, string> = {
+                  PDF: 'bg-red-500',
+                  MD: 'bg-blue-500',
+                  HTM: 'bg-orange-500',
+                  TXT: 'bg-gray-500',
+                  JSON: 'bg-yellow-500',
+                };
+
+                return (
+                  <button
+                    key={fileType}
+                    onClick={() => toggleFileType(fileType)}
+                    className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                      isSelected
+                        ? `${colorMap[fileType] || 'bg-accent'} text-white`
+                        : 'border border-border bg-background text-text-secondary hover:border-text-secondary'
+                    }`}
+                  >
+                    {fileType}
+                  </button>
+                );
+              })}
+            </div>
+          </FilterSection>
+
+          {/* Form Types (when Filings selected) */}
+          {showFilingsFilters && (
+            <FilterSection title="Form Types" defaultExpanded={false}>
+              <TypeFilterGrid
+                types={ALL_SEC_FORM_TYPES}
+                selectedTypes={filters.formTypes}
+                onToggle={toggleFormType}
+                availableTypes={availableOptions?.formTypes}
+                maxHeight="180px"
+                columns={3}
+                showSearch={true}
+                searchPlaceholder="Search form types..."
+              />
+            </FilterSection>
+          )}
+
+          {/* Event Types (when Transcripts selected) */}
+          {showTranscriptsFilters && (
+            <FilterSection title="Event Types" defaultExpanded={false}>
+              <TypeFilterGrid
+                types={TRANSCRIPT_EVENT_TYPES}
+                selectedTypes={filters.eventTypes}
+                onToggle={toggleEventType}
+                availableTypes={availableOptions?.eventTypes}
+                maxHeight="180px"
+                columns={3}
+              />
+            </FilterSection>
+          )}
+
+          {/* Ticker filter grid */}
+          <FilterSection title="Tickers" defaultExpanded={false}>
+            <TickerFilterGrid
+              tickers={allTickers}
+              selectedTickers={filters.tickers}
+              onToggle={toggleTicker}
+              availableTickers={availableOptions?.tickers}
+              maxHeight="180px"
+              columns={3}
             />
           </FilterSection>
 
-          {/* File type toggle buttons */}
-          <FilterSection label="File Types">
-            <ToggleButtonGroup
-              options={FILE_TYPES}
-              selected={filters.fileTypes}
-              onChange={(fileTypes) => setFilters({ fileTypes })}
-              colorMap={{
-                PDF: 'bg-red-500',
-                MD: 'bg-blue-500',
-                HTM: 'bg-orange-500',
-                TXT: 'bg-gray-500',
-                JSON: 'bg-yellow-500',
-              }}
-            />
-          </FilterSection>
-
-          {/* Ticker autocomplete */}
-          <FilterSection label="Tickers">
-            <TickerSelect
-              selected={filters.tickers}
-              onChange={(tickers) => setFilters({ tickers })}
-            />
-          </FilterSection>
-
-          {/* Date range */}
-          <FilterSection label="Date Range">
-            <DateRangePicker
-              startDate={filters.dateRange.start}
-              endDate={filters.dateRange.end}
-              onChange={(dateRange) => setFilters({ dateRange })}
+          {/* Date range with year/month buttons */}
+          <FilterSection title="Date Range" defaultExpanded={false}>
+            <DateRangeSlider
+              minDate={availableOptions?.dateRange?.min || null}
+              maxDate={availableOptions?.dateRange?.max || null}
+              selectedStart={filters.dateRange.start}
+              selectedEnd={filters.dateRange.end}
+              availableYears={availableYears}
+              onRangeChange={(start, end) => setFilters({ dateRange: { start, end } })}
             />
           </FilterSection>
         </div>
       )}
-    </div>
-  );
-}
-
-function FilterSection({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <label className="text-xs font-medium uppercase tracking-wide text-text-secondary">
-        {label}
-      </label>
-      {children}
     </div>
   );
 }
@@ -133,6 +288,13 @@ function SearchInput({
   useEffect(() => {
     setLocalValue(value);
   }, [value]);
+
+  // Cleanup timeout on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      clearTimeout(timeoutRef.current);
+    };
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
@@ -156,224 +318,17 @@ function SearchInput({
       />
       {localValue && (
         <button
+          type="button"
           onClick={() => {
             setLocalValue('');
             onChange('');
           }}
+          aria-label="Clear search"
           className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text-primary"
         >
           <XIcon className="h-4 w-4" />
         </button>
       )}
-    </div>
-  );
-}
-
-function ToggleButtonGroup({
-  options,
-  selected,
-  onChange,
-  colorMap,
-}: {
-  options: readonly string[];
-  selected: string[];
-  onChange: (selected: string[]) => void;
-  colorMap?: Record<string, string>;
-}) {
-  const toggle = (option: string) => {
-    if (selected.includes(option)) {
-      onChange(selected.filter((s) => s !== option));
-    } else {
-      onChange([...selected, option]);
-    }
-  };
-
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {options.map((option) => {
-        const isSelected = selected.includes(option);
-        const color = colorMap?.[option] || 'bg-accent';
-
-        return (
-          <button
-            key={option}
-            onClick={() => toggle(option)}
-            className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-              isSelected
-                ? `${color} text-white`
-                : 'border border-border bg-background text-text-secondary hover:border-text-secondary'
-            }`}
-          >
-            {option}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function TickerSelect({
-  selected,
-  onChange,
-}: {
-  selected: string[];
-  onChange: (selected: string[]) => void;
-}) {
-  const [inputValue, setInputValue] = useState('');
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [isOpen, setIsOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  // Fetch suggestions on input change
-  useEffect(() => {
-    if (!inputValue) {
-      setSuggestions([]);
-      return;
-    }
-
-    const timeoutId = setTimeout(async () => {
-      setLoading(true);
-      try {
-        const tickers = await fetchTickers(inputValue);
-        setSuggestions(tickers.filter((t) => !selected.includes(t)));
-      } catch {
-        setSuggestions([]);
-      }
-      setLoading(false);
-    }, 200);
-
-    return () => clearTimeout(timeoutId);
-  }, [inputValue, selected]);
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node) &&
-        !inputRef.current?.contains(event.target as Node)
-      ) {
-        setIsOpen(false);
-      }
-    }
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const addTicker = useCallback(
-    (ticker: string) => {
-      if (!selected.includes(ticker)) {
-        onChange([...selected, ticker]);
-      }
-      setInputValue('');
-      setIsOpen(false);
-    },
-    [selected, onChange]
-  );
-
-  const removeTicker = (ticker: string) => {
-    onChange(selected.filter((t) => t !== ticker));
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && inputValue.trim()) {
-      addTicker(inputValue.trim().toUpperCase());
-    } else if (e.key === 'Backspace' && !inputValue && selected.length > 0) {
-      removeTicker(selected[selected.length - 1]);
-    } else if (e.key === 'Escape') {
-      setIsOpen(false);
-    }
-  };
-
-  return (
-    <div className="relative">
-      <div className="flex min-h-[38px] flex-wrap gap-1.5 rounded-md border border-border bg-background p-1.5 focus-within:border-accent">
-        {selected.map((ticker) => (
-          <span
-            key={ticker}
-            className="flex items-center gap-1 rounded bg-accent/20 px-2 py-0.5 text-xs font-medium text-accent"
-          >
-            {ticker}
-            <button
-              onClick={() => removeTicker(ticker)}
-              className="hover:text-white"
-            >
-              <XIcon className="h-3 w-3" />
-            </button>
-          </span>
-        ))}
-        <input
-          ref={inputRef}
-          type="text"
-          value={inputValue}
-          onChange={(e) => {
-            setInputValue(e.target.value.toUpperCase());
-            setIsOpen(true);
-          }}
-          onFocus={() => setIsOpen(true)}
-          onKeyDown={handleKeyDown}
-          placeholder={selected.length === 0 ? 'Type ticker symbols...' : ''}
-          className="min-w-[100px] flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-secondary focus:outline-none"
-        />
-      </div>
-
-      {isOpen && (suggestions.length > 0 || loading) && (
-        <div
-          ref={dropdownRef}
-          className="absolute left-0 top-full z-50 mt-1 max-h-48 w-full overflow-auto rounded-md border border-border bg-surface py-1 shadow-lg"
-        >
-          {loading ? (
-            <div className="px-3 py-2 text-sm text-text-secondary">
-              Loading...
-            </div>
-          ) : (
-            suggestions.map((ticker) => (
-              <button
-                key={ticker}
-                onClick={() => addTicker(ticker)}
-                className="flex w-full items-center px-3 py-2 text-left text-sm text-text-primary hover:bg-background"
-              >
-                {ticker}
-              </button>
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function DateRangePicker({
-  startDate,
-  endDate,
-  onChange,
-}: {
-  startDate: string | null;
-  endDate: string | null;
-  onChange: (range: { start: string | null; end: string | null }) => void;
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <input
-        type="date"
-        value={startDate || ''}
-        onChange={(e) =>
-          onChange({ start: e.target.value || null, end: endDate })
-        }
-        className="flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none"
-      />
-      <span className="text-text-secondary">to</span>
-      <input
-        type="date"
-        value={endDate || ''}
-        onChange={(e) =>
-          onChange({ start: startDate, end: e.target.value || null })
-        }
-        className="flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none"
-      />
     </div>
   );
 }

@@ -100,7 +100,7 @@ function App() {
               id="explorer-panel"
               role="tabpanel"
               aria-labelledby="explorer-tab"
-              className="flex-1"
+              className="h-full w-full flex-1"
             >
               <Explorer />
             </div>
@@ -110,7 +110,7 @@ function App() {
               id="commands-panel"
               role="tabpanel"
               aria-labelledby="commands-tab"
-              className="flex-1"
+              className="h-full w-full flex-1"
             >
               <Commands />
             </div>

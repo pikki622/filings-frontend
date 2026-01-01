@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import type { FileNode, FileFilters, Hierarchy } from '../types/file';
+import type { FileNode, FileFilters, AvailableFilterOptions } from '../types/file';
 
 export interface FileTreeResponse {
   tree: FileNode[];
@@ -46,15 +46,15 @@ export interface FileContentResponse {
 }
 
 /**
- * Fetch the file tree with filters and hierarchy
+ * Fetch the file tree with filters
  */
 export async function fetchFileTree(
-  filters: FileFilters,
-  hierarchy: Hierarchy
+  filters: FileFilters
 ): Promise<FileTreeResponse> {
   const params = new URLSearchParams();
 
-  params.append('hierarchy', hierarchy);
+  // Always use fixed hierarchy
+  params.append('hierarchy', 'source_form_ticker_date');
 
   if (filters.search) {
     params.append('search', filters.search);
@@ -66,6 +66,14 @@ export async function fetchFileTree(
 
   if (filters.fileTypes.length > 0) {
     filters.fileTypes.forEach((type) => params.append('file_types', type));
+  }
+
+  if (filters.formTypes.length > 0) {
+    filters.formTypes.forEach((type) => params.append('form_types', type));
+  }
+
+  if (filters.eventTypes.length > 0) {
+    filters.eventTypes.forEach((type) => params.append('event_types', type));
   }
 
   if (filters.tickers.length > 0) {
@@ -135,6 +143,50 @@ export async function fetchTickers(search?: string): Promise<string[]> {
 export async function fetchFormTypes(): Promise<string[]> {
   // Backend returns string[] directly
   const response = await apiClient.get<string[]>('/api/files/form-types');
+
+  return response.data;
+}
+
+/**
+ * Fetch available filter options based on current filters
+ * Used for cross-filter dynamics (e.g., selecting a ticker limits available dates)
+ */
+export async function fetchAvailableOptions(
+  filters: Partial<FileFilters>
+): Promise<AvailableFilterOptions> {
+  const params = new URLSearchParams();
+
+  if (filters.sources && filters.sources.length > 0) {
+    filters.sources.forEach((source) => params.append('sources', source));
+  }
+
+  if (filters.fileTypes && filters.fileTypes.length > 0) {
+    filters.fileTypes.forEach((type) => params.append('file_types', type));
+  }
+
+  if (filters.formTypes && filters.formTypes.length > 0) {
+    filters.formTypes.forEach((type) => params.append('form_types', type));
+  }
+
+  if (filters.eventTypes && filters.eventTypes.length > 0) {
+    filters.eventTypes.forEach((type) => params.append('event_types', type));
+  }
+
+  if (filters.tickers && filters.tickers.length > 0) {
+    filters.tickers.forEach((ticker) => params.append('tickers', ticker));
+  }
+
+  if (filters.dateRange?.start) {
+    params.append('date_start', filters.dateRange.start);
+  }
+
+  if (filters.dateRange?.end) {
+    params.append('date_end', filters.dateRange.end);
+  }
+
+  const response = await apiClient.get<AvailableFilterOptions>('/api/files/available-options', {
+    params,
+  });
 
   return response.data;
 }
