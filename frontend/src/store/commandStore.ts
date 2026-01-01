@@ -180,7 +180,7 @@ export const useCommandStore = create<CommandState>()(
       };
 
       // Connect via WebSocket
-      const wsUrl = getCommandWebSocketUrl(selectedCli);
+      const wsUrl = getCommandWebSocketUrl();
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {

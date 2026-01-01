@@ -170,6 +170,58 @@ async def get_file_content(
     )
 
 
+@router.get("/download", response_model=None)
+async def download_file(
+    path: Annotated[str, Query(description="Path to the file to download")],
+    settings: Annotated[Settings, Depends(get_settings)],
+):
+    """Download a file directly.
+
+    Returns the file for download/viewing. Primarily used for PDFs in the preview pane.
+
+    Args:
+        path: Absolute or relative path to the file
+
+    Returns:
+        FileResponse for the requested file
+    """
+    # Handle both relative and absolute paths
+    if not path.startswith("/"):
+        full_path = settings.files_root / path
+    else:
+        full_path = Path(path)
+
+    # Security check - ensure path is within files_root
+    try:
+        full_path.resolve().relative_to(settings.files_root.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not full_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    if not full_path.is_file():
+        raise HTTPException(status_code=400, detail="Path is not a file")
+
+    # Determine media type based on extension
+    suffix = full_path.suffix.lower()
+    media_types = {
+        ".pdf": "application/pdf",
+        ".txt": "text/plain",
+        ".md": "text/markdown",
+        ".htm": "text/html",
+        ".html": "text/html",
+        ".json": "application/json",
+    }
+    media_type = media_types.get(suffix, "application/octet-stream")
+
+    return FileResponse(
+        path=str(full_path),
+        media_type=media_type,
+        filename=full_path.name,
+    )
+
+
 @router.get("/tickers", response_model=list[str])
 async def get_available_tickers(
     scanner: Annotated[FileScanner, Depends(get_scanner)],
